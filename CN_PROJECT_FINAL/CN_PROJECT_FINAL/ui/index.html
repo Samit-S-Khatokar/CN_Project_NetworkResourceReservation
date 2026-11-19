@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Network Resource Reservation</title>
+<style>
+  :root { --ink: #1f1d2b; --muted: #6b6880; --line: #e4e1ee; --accent: #5b2fb5; --accent-soft: #f2edfc;
+          --orange: #e0700b; --good: #1e7a46; --good-soft: #e9f6ee; --bad: #b42318; --bad-soft: #fcefee;
+          --font: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+          --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f7f6fb; color: var(--ink); font: 14px/1.45 var(--font); }
+  #scene { position: fixed; inset: 0; }
+  .panel { position: fixed; top: 16px; right: 16px; bottom: 16px; width: 330px; background: #fff; border: 1px solid var(--line);
+           border-top: 3px solid var(--accent); border-radius: 10px; padding: 16px; overflow-y: auto;
+           box-shadow: 0 8px 30px rgba(40, 20, 80, .08); }
+  h1 { margin: 0; font-size: 17px; color: var(--accent); }
+  .sub { margin: 2px 0 14px; color: var(--muted); font-size: 12.5px; }
+  h2 { margin: 16px 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--orange); }
+  form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  label { font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+  select, input { font: 14px var(--font); padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: #fff; width: 100%; }
+  button { font: 600 13px var(--font); padding: 7px 12px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+  button.ghost { background: #fff; color: var(--accent); padding: 3px 8px; font-weight: 500; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: wait; }
+  form button { grid-column: span 2; }
+  #reply { margin-top: 10px; border-radius: 8px; padding: 8px 10px; font-size: 13px; display: none; }
+  #reply.ok { display: block; background: var(--good-soft); color: var(--good); }
+  #reply.no { display: block; background: var(--bad-soft); color: var(--bad); }
+  #reply.info { display: block; background: var(--accent-soft); color: var(--accent); }
+  #reply b { display: block; font-family: var(--mono); font-size: 12.5px; }
+  #reply pre { margin: 6px 0 0; font: 11.5px/1.4 var(--mono); color: var(--muted); white-space: pre-wrap; word-break: break-all; }
+  .booking { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+  .booking:hover { border-color: var(--orange); }
+  .booking .top { display: flex; justify-content: space-between; font-weight: 600; }
+  .booking .meta { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
+  .booking .btns { display: flex; gap: 6px; }
+  .empty { color: var(--muted); font-size: 12.5px; }
+  .links { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .link { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12.5px; }
+  .link.down { border-color: var(--bad); color: var(--bad); }
+  .legend { position: fixed; left: 16px; bottom: 16px; background: rgba(255,255,255,.9); border: 1px solid var(--line);
+            border-radius: 8px; padding: 8px 12px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .title { position: fixed; left: 20px; top: 16px; color: var(--muted); font-size: 12.5px; }
+  .title b { color: var(--ink); }
+  @media (max-width: 760px) { .panel { top: auto; height: 50%; left: 8px; right: 8px; width: auto; } .legend { display: none; } }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div class="title"><b>Path A</b> via s2 · 10 Mbps &nbsp;|&nbsp; <b>Path B</b> via s3 · 20 Mbps &nbsp;·&nbsp; drag to rotate, scroll to zoom</div>
+<div class="legend">
+  <span><i style="background:#c9c5d6"></i>free</span>
+  <span><i style="background:#5b2fb5"></i>booked</span>
+  <span><i style="background:#e0700b"></i>selected</span>
+  <span><i style="background:#b42318"></i>down</span>
+  <span>moving box = one booking's traffic (#id)</span>
+</div>
+
+<aside class="panel">
+  <h1>Network Resource Reservation</h1>
+  <p class="sub">TCP booking server · reservation manager · SDN controller</p>
+
+  <h2>Book bandwidth</h2>
+  <form id="book">
+    <label>From<select name="src"></select></label>
+    <label>To<select name="dst"></select></label>
+    <label>Mbps<input name="mbps" type="number" min="0.5" step="0.5" value="5"></label>
+    <label>Seconds<input name="secs" type="number" min="1" value="120"></label>
+    <button>Book</button>
+  </form>
+  <div id="reply"></div>
+
+  <h2>Bookings</h2>
+  <div id="bookings"><p class="empty">None yet.</p></div>
+
+  <h2>Links</h2>
+  <div class="links" id="links"></div>
+</aside>
+
+<script src="three.min.js"></script>
+<script src="OrbitControls.js"></script>
+<script>
+const HOSTS = {h1: "10.0.0.1", h2: "10.0.0.2", h3: "10.0.0.3", h4: "10.0.0.4"};
+const POS = {h1: [-7, -3], h3: [-7, 3], s1: [-3.5, 0], s2: [0, -3.5], s3: [0, 3.5], s4: [3.5, 0], h2: [7, -3], h4: [7, 3], srv: [-3.5, 4.8]};
+const EDGES = [["h1", "s1"], ["h3", "s1"], ["srv", "s1"], ["s1", "s2"], ["s2", "s4"], ["s1", "s3"], ["s3", "s4"], ["s4", "h2"], ["s4", "h4"]];
+const CORE = ["s1-s2", "s2-s4", "s1-s3", "s3-s4"];
+const COLORS = {free: 0xc9c5d6, booked: 0x5b2fb5, selected: 0xe0700b, down: 0xb42318};
+const PACKET_COLORS = [0xe0700b, 0x5b2fb5, 0x1e7a46, 0x2b6cb0, 0xb5179e, 0x8a6d00];
+let state = {links: {}, bookings: []}, fetchedAt = 0, selected = null;
+
+// ---------- 3D scene ----------
+const box = document.getElementById("scene");
+const renderer = new THREE.WebGLRenderer({antialias: true});
+renderer.setPixelRatio(window.devicePixelRatio);
+box.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf7f6fb);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+camera.position.set(2.8, 12.8, 14.3);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(2.4, -0.6, 0.8);   // right of centre, so the network sits left of the panel
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd8d2ea, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+sun.position.set(5, 12, 8);
+scene.add(sun);
+const grid = new THREE.GridHelper(30, 30, 0xe4e1ee, 0xeeecf4);
+grid.position.y = -0.8;
+scene.add(grid);
+
+const at = n => new THREE.Vector3(POS[n][0], 0, POS[n][1]);
+
+function label(text, color = "#1f1d2b", size = 44) {
+  const c = document.createElement("canvas"), g = c.getContext("2d");
+  g.font = `600 ${size}px Segoe UI, Arial`;
+  c.width = Math.ceil(g.measureText(text).width) + 20;
+  c.height = size + 16;
+  g.font = `600 ${size}px Segoe UI, Arial`;
+  g.fillStyle = color;
+  g.textBaseline = "middle";
+  g.fillText(text, 10, c.height / 2);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(c), depthTest: false}));
+  s.scale.set(c.width / 110, c.height / 110, 1);
+  return s;
+}
+
+// nodes
+for (const [n, [x, z]] of Object.entries(POS)) {
+  let mesh;
+  if (n === "srv") mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.9, 24), new THREE.MeshStandardMaterial({color: 0xe0700b, roughness: .5}));
+  else if (n[0] === "s") mesh = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.7, 1.4), new THREE.MeshStandardMaterial({color: 0x2b2540, roughness: .5}));
+  else mesh = new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 16), new THREE.MeshStandardMaterial({color: 0x7b55d6, roughness: .4}));
+  mesh.position.set(x, 0, z);
+  scene.add(mesh);
+  const l = label(n === "srv" ? "server 10.0.0.254" : n + (HOSTS[n] ? "  " + HOSTS[n] : ""), "#1f1d2b", 40);
+  l.position.set(x, 1.1, z);
+  scene.add(l);
+}
+
+// links (rebuilt on every refresh) and packets
+const linkGroup = new THREE.Group(), packetGroup = new THREE.Group();
+scene.add(linkGroup, packetGroup);
+
+function tube(a, b, radius, color, opacity = 1) {
+  const pa = at(a), pb = at(b), len = pa.distanceTo(pb);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 12),
+    new THREE.MeshStandardMaterial({color, transparent: opacity < 1, opacity, roughness: .6}));
+  m.position.copy(pa).add(pb).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pb.clone().sub(pa).normalize());
+  return m;
+}
+
+function drawLinks() {
+  linkGroup.clear();
+  const sel = state.bookings.find(b => b.id === selected);
+  const onSel = (a, b) => sel && sel.path.some((n, i) => (n === a && sel.path[i + 1] === b) || (n === b && sel.path[i + 1] === a));
+  for (const [a, b] of EDGES) {
+    const key = [a, b].sort().join("-"), info = state.links[key];
+    const usedBy = state.bookings.filter(r => r.path.some((n, i) => (n === a && r.path[i + 1] === b) || (n === b && r.path[i + 1] === a)));
+    let color = COLORS.free, radius = 0.07, opacity = 1;
+    if (usedBy.length) { color = COLORS.booked; radius = 0.11 + 0.1 * Math.min((info ? info.booked / info.cap : usedBy.length / 4), 1); }
+    if (onSel(a, b)) { color = COLORS.selected; radius = Math.max(radius, 0.16); }
+    if (info && !info.up) { color = COLORS.down; radius = 0.06; opacity = 0.45; }
+    linkGroup.add(tube(a, b, radius, color, opacity));
+    if (info) {
+      const t = label(info.up ? `${info.booked.toFixed(0)}/${info.cap} Mbps` : "DOWN", info.up ? "#6b6880" : "#b42318", 34);
+      const mid = at(a).add(at(b)).multiplyScalar(0.5), out = mid.clone().setY(0).normalize().multiplyScalar(1.3);
+      t.position.copy(mid).add(out).add(new THREE.Vector3(0, 0.3, 0));   // pushed outwards, clear of the switches
+      linkGroup.add(t);
+    }
+  }
+}
+
+// one packet per booking: a glowing box labelled #id that keeps flowing along the booking's path
+const packets = {}, flashes = [];
+let firstLoad = true;
+
+function along(pts, f) {                  // point at fraction f of a path, constant speed
+  const lens = pts.slice(1).map((p, i) => p.distanceTo(pts[i])), total = lens.reduce((a, b) => a + b, 0);
+  let d = ((f % 1) + 1) % 1 * total;
+  for (let i = 0; i < lens.length; i++) {
+    if (d <= lens[i]) return pts[i].clone().lerp(pts[i + 1], d / lens[i]);
+    d -= lens[i];
+  }
+  return pts[pts.length - 1].clone();
+}
+
+function flash(pts, color, seconds) {      // one bright pulse that travels a path once
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 12), new THREE.MeshBasicMaterial({color, transparent: true, opacity: .9}));
+  packetGroup.add(m);
+  flashes.push({m, pts, start: clock.getElapsedTime(), seconds});
+}
+
+function serverRoute(h) {                  // how a request travels from a host to the server
+  return (["h1", "h3"].includes(h) ? [h, "s1", "srv"] : [h, "s4", "s2", "s1", "srv"]).map(at);
+}
+
+function syncPackets() {
+  const ids = new Set(state.bookings.map(b => b.id));
+  for (const id of Object.keys(packets)) {
+    if (!ids.has(+id)) { packets[id].parts.forEach(o => packetGroup.remove(o)); delete packets[id]; }
+  }
+  for (const b of state.bookings) {
+    const pts = b.path.map(at), color = PACKET_COLORS[(b.id - 1) % PACKET_COLORS.length];
+    if (packets[b.id]) { packets[b.id].pts = pts; continue; }      // path may change after a reroute
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.62),
+      new THREE.MeshStandardMaterial({color, emissive: color, emissiveIntensity: .35, roughness: .3}));
+    const tag = label("#" + b.id, "#" + color.toString(16).padStart(6, "0"), 48);
+    const trail = [0.75, 0.55, 0.35].map(o => new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 8),
+      new THREE.MeshBasicMaterial({color, transparent: true, opacity: o * 0.6})));
+    const parts = [box, tag, ...trail];
+    parts.forEach(o => packetGroup.add(o));
+    packets[b.id] = {box, tag, trail, parts, pts, born: clock.getElapsedTime()};
+    if (!firstLoad) flash(pts, 0xffb15e, 1.4);                     // new booking: a flash runs its path first
+  }
+  firstLoad = false;
+}
+
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+const clock = new THREE.Clock();
+(function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  const up = new THREE.Vector3(0, 0.25, 0);
+  for (const p of Object.values(packets)) {
+    const f = (t - p.born) / 3.5;                                  // one trip every 3.5 s
+    p.box.position.copy(along(p.pts, f)).add(up);
+    p.box.rotation.set(t, t * 0.7, 0);
+    p.tag.position.copy(p.box.position).add(new THREE.Vector3(0, 0.75, 0));
+    p.trail.forEach((m, i) => m.position.copy(along(p.pts, f - 0.035 * (i + 1))).add(up));
+  }
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const fl = flashes[i], f = (t - fl.start) / fl.seconds;
+    if (f >= 1) { packetGroup.remove(fl.m); flashes.splice(i, 1); continue; }
+    fl.m.position.copy(along(fl.pts, f * 0.999)).add(up);
+    fl.m.scale.setScalar(1 + Math.sin(f * Math.PI) * 0.6);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+})();
+
+// ---------- panel ----------
+const $ = id => document.getElementById(id);
+const form = $("book");
+for (const sel of [form.src, form.dst])
+  sel.innerHTML = Object.keys(HOSTS).map(h => `<option>${h}</option>`).join("");
+form.dst.value = "h2";
+
+function show(res) {
+  const r = res.reply || "", ok = /^(ACCEPT|OK|STATUS ACTIVE)/.test(r), bad = /^(REJECT|ERROR)/.test(r);
+  const words = {CONFLICT: "these two computers already have a booking", NO_CAPACITY: "not enough free bandwidth on any path",
+                 INVALID: "bad request", UNAUTHORIZED: "login failed"};
+  const why = bad ? Object.keys(words).find(w => r.includes(w)) : null;
+  $("reply").className = ok ? "ok" : bad ? "no" : "info";
+  $("reply").innerHTML = `${ok ? (r.startsWith("OK") ? "✓ Cancelled" : r.startsWith("STATUS") ? "✓ Active" : "✓ Accepted") : bad ? "✗ Refused" + (why ? ": " + words[why] : "") : "ℹ Done"}<b>${r}</b>` +
+    (res.lines && res.lines.length ? `<pre>${res.lines.join("\n")}</pre>` : "");
+}
+
+async function act(name, body, button) {
+  if (name === "book") flash(serverRoute(body.src), 0xe0700b, 0.9);   // the TCP request travels to the server
+  document.querySelectorAll("button").forEach(b => b.disabled = true);
+  if (button) button.textContent = "…";
+  try {
+    const resp = await fetch("/api/" + name, {method: "POST", body: JSON.stringify(body)});
+    show(await resp.json());
+  } catch (e) {
+    show({reply: "ERROR the server is not running"});
+  }
+  document.querySelectorAll("button").forEach(b => b.disabled = false);
+  refresh();
+}
+
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  act("book", {src: form.src.value, dst: form.dst.value, mbps: form.mbps.value, secs: form.secs.value, user: "user1"}, e.submitter);
+});
+
+function drawPanel() {
+  $("bookings").innerHTML = state.bookings.length ? state.bookings.map(b => `
+    <div class="booking" data-id="${b.id}">
+      <div class="top"><span>#${b.id} ${b.from} → ${b.to}</span><span>${b.mbps} Mbps</span></div>
+      <div class="meta">${b.path.includes("s2") ? "Path A" : b.path.includes("s3") ? "Path B" : "same switch"} · ${b.path.join("-")}
+        ${b.left == null ? "" : ` · <span class="left" data-end="${fetchedAt + b.left * 1000}">${b.left}</span> s left`}</div>
+      <div class="btns">
+        <button class="ghost" data-do="traffic">Test speed</button>
+        <button class="ghost" data-do="again">Book again</button>
+        <button class="ghost" data-do="cancel">Cancel</button>
+      </div>
+    </div>`).join("") : `<p class="empty">None yet.</p>`;
+  $("links").innerHTML = CORE.map(k => {
+    const l = state.links[k] || {up: true};
+    return `<div class="link ${l.up ? "" : "down"}"><span>${k}</span><button class="ghost" data-link="${k}" data-up="${!l.up}">${l.up ? "Break" : "Fix"}</button></div>`;
+  }).join("");
+}
+
+$("bookings").addEventListener("click", e => {
+  const card = e.target.closest(".booking");
+  if (!card) return;
+  const b = state.bookings.find(x => x.id === +card.dataset.id), what = e.target.dataset.do;
+  if (what === "traffic") act("traffic", {src: b.from, dst: b.to}, e.target);
+  else if (what === "again") act("book", {src: b.from, dst: b.to, mbps: b.mbps, secs: 120, user: b.user in {user1: 1, user2: 1} ? b.user : "user1"}, e.target);
+  else if (what === "cancel") act("cancel", {id: b.id}, e.target);
+  else { selected = selected === b.id ? null : b.id; drawLinks(); }
+});
+$("bookings").addEventListener("mouseover", e => {
+  const card = e.target.closest(".booking");
+  const id = card ? +card.dataset.id : null;
+  if (id !== selected) { selected = id; drawLinks(); }
+});
+$("links").addEventListener("click", e => {
+  if (e.target.dataset.link) act("link", {link: e.target.dataset.link, up: e.target.dataset.up === "true"}, e.target);
+});
+
+async function refresh() {
+  try {
+    const s = await (await fetch("/api/state")).json();
+    if (s.error) return;
+    const changed = firstLoad || JSON.stringify(s.bookings.map(b => [b.id, b.path, b.mbps])) !== JSON.stringify(state.bookings.map(b => [b.id, b.path, b.mbps]));
+    state = s;
+    fetchedAt = Date.now();
+    drawLinks();
+    if (changed) syncPackets();
+    if (!document.querySelector(".panel button:disabled")) drawPanel();
+  } catch (e) { /* server not up yet */ }
+}
+refresh();
+setInterval(refresh, 2000);
+setInterval(() => document.querySelectorAll(".left").forEach(el =>
+  el.textContent = Math.max(0, Math.round((el.dataset.end - Date.now()) / 1000))), 1000);
+</script>
+</body>
+</html>

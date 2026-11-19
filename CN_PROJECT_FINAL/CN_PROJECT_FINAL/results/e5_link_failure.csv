@@ -1,0 +1,2 @@
+path_before,status_after,fail_at_s,controller_rerouted_after_s,throughput_recovered_at_s,recovery_time_s,avg_mbps_before_failure,avg_mbps_after_recovery,survived,approx_data_lost_mbit
+h1-s1-s2-s4-h2,STATUS ACTIVE 2 5.0 1793589604.72 h1-s1-s3-s4-h2,10,0.063,11.0,1.0,4.981,4.799,True,0.4

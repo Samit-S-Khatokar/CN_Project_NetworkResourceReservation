@@ -1,0 +1,3 @@
+core_link_mbps,requests,acceptance_ratio,no_capacity,avg_core_util_pct,peak_core_util_pct
+10,305,0.226,38,71.7,100.0
+20,305,0.262,0,53.4,100.0

@@ -1,0 +1,3 @@
+mode,avg_mbps_no_flood,avg_mbps_during_flood,min_mbps_during_flood,avg_ping_ms_during_flood,ping_lost_during_flood_pct
+reservation,4.91,4.63,4.18,36.4,1.7
+baseline,7.48,0.26,0.0,103.3,76.7
